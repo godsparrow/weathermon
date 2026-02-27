@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WEATHERMON // GITHUB_EDITION</title>
+    <style>
+        body { margin: 0; background: #020205; overflow: hidden; color: #fff; font-family: 'Courier New', monospace; }
+        canvas { display: block; image-rendering: pixelated; }
+        #ui { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; }
+        .bar-bg { width: 400px; height: 12px; background: #111; border: 2px solid #333; margin-bottom: 8px; }
+        #p-fill { height: 100%; background: #fff; width: 100%; transition: width 0.3s; }
+        #b-fill { height: 100%; background: #00d2ff; width: 100%; transition: width 0.1s; }
+        #combo-ui { position: absolute; top: 20px; right: 40px; text-align: right; }
+        #combo-num { font-size: 60px; color: #00d2ff; margin: 0; font-weight: bold; text-shadow: 4px 4px #000; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="bar-bg"><div id="p-fill"></div></div>
+        <div class="bar-bg"><div id="b-fill"></div></div>
+    </div>
+    <div id="combo-ui"><p id="combo-num">0</p></div>
+
+    <canvas id="game"></canvas>
+
+<script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+
+    // --- SPRITE LOADING ---
+    // Change these URLs to your actual filenames once you upload them to GitHub!
+    const bossSheet = new Image();
+    bossSheet.src = 'boss_sprites.png'; 
+    const playerSheet = new Image();
+    playerSheet.src = 'player_sprites.png';
+
+    const PIXEL = 4;
+    const GROUND_Y = canvas.height - 120;
+    let shake = 0, frame = 0, gameState = 'PLAYING', combo = 0;
+
+    let player = { x: 300, y: GROUND_Y - 80, w: 64, h: 80, vy: 0, hp: 100, dashCD: 0, attackCD: 0, dir: 1 };
+    let boss = { x: canvas.width - 500, y: GROUND_Y - 180, w: 120, h: 180, hp: 20000, maxHp: 20000, state: 'IDLE', timer: 0, dir: -1, signal: 0 };
+    
+    let fx = [], keys = {};
+
+    window.onkeydown = e => keys[e.code] = true;
+    window.onkeyup = e => keys[e.code] = false;
+
+    function drawMoon() {
+        let hpRatio = boss.hp / boss.maxHp;
+        let r = 255;
+        let gb = Math.floor(255 * hpRatio);
+        ctx.fillStyle = `rgb(${r}, ${gb}, ${gb})`;
+        ctx.shadowBlur = 50; ctx.shadowColor = `rgb(${r}, ${gb}, ${gb})`;
+        ctx.beginPath();
+        ctx.arc(canvas.width * 0.8, 150, 60, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    function renderEntity(entity, sheet, isBoss) {
+        ctx.save();
+        ctx.translate(entity.x + entity.w/2, entity.y + entity.h/2);
+        if (entity.dir === 1) ctx.scale(-1, 1);
+
+        if (sheet.complete && sheet.naturalWidth !== 0) {
+            // SPRITE MODE: If the image exists, we draw a slice of it
+            // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+            let frameX = (Math.floor(frame / 10) % 4) * 64; // Simple 4-frame animation loop
+            ctx.drawImage(sheet, frameX, 0, 64, 80, -entity.w/2, -entity.h/2, entity.w, entity.h);
+        } else {
+            // FALLBACK MODE: Draws a high-detail placeholder if image hasn't loaded
+            ctx.fillStyle = isBoss ? (entity.signal ? "#fff" : "#00d2ff") : "#fff";
+            ctx.fillRect(-entity.w/2, -entity.h/2, entity.w, entity.h);
+        }
+        ctx.restore();
+    }
+
+    function update() {
+        if (gameState !== 'PLAYING') return;
+        frame++;
+
+        // Basic AI & Movement (Re-using your tuned logic)
+        if (boss.timer-- <= 0) {
+            boss.dir = player.x < boss.x ? -1 : 1;
+            let roll = Math.random();
+            if (roll < 0.5) { boss.state = 'DASH'; boss.timer = 40; boss.signal = 1; }
+            else { boss.state = 'IDLE'; boss.timer = 30; boss.signal = 0; }
+        }
+        if (boss.timer < 20) boss.signal = 0;
+
+        // Player movement
+        if (keys['ArrowLeft']) player.x -= 14;
+        if (keys['ArrowRight']) player.x += 14;
+        if (keys['ArrowUp'] && player.y >= GROUND_Y - player.h) player.vy = -30;
+        player.vy += 1.8; player.y += player.vy;
+        if (player.y > GROUND_Y - player.h) { player.y = GROUND_Y - player.h; player.vy = 0; }
+
+        // Combat Mechanics
+        if (keys['Space'] && player.attackCD <= 0) {
+            player.attackCD = 12;
+            if (Math.abs(player.x - boss.x) < 250) {
+                boss.hp -= 400; combo++; shake = 10;
+                document.getElementById('combo-num').innerText = combo;
+            }
+        }
+        if (player.attackCD > 0) player.attackCD--;
+
+        document.getElementById('p-fill').style.width = player.hp + "%";
+        document.getElementById('b-fill').style.width = (boss.hp / boss.maxHp * 100) + "%";
+        if (player.hp <= 0) gameState = 'DEAD';
+    }
+
+    function draw() {
+        ctx.fillStyle = '#020205'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (shake > 0) { ctx.translate(Math.random()*shake-shake/2, Math.random()*shake-shake/2); shake *= 0.8; }
+
+        drawMoon();
+        ctx.fillStyle = '#111'; ctx.fillRect(0, GROUND_Y, canvas.width, 120);
+        ctx.fillStyle = '#00d2ff'; ctx.fillRect(0, GROUND_Y, canvas.width, 2);
+
+        renderEntity(player, playerSheet, false);
+        renderEntity(boss, bossSheet, true);
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        update();
+        requestAnimationFrame(draw);
+    }
+    draw();
+</script>
+</body>
+</html>
